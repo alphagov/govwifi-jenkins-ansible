@@ -1,0 +1,112 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    ec2_ami: ami-cc6d8eab
+    elb_cert: arn:aws:acm:eu-west-2:788375279931:certificate/64088438-a5bd-4699-9d50-ce0c0ceeb36a
+    vpn_admin_ips: "{{ lookup('file', '../private/admin_ips.yml') | from_yaml }}"
+
+  tasks:
+    - name: Jenkins ELB Security Group
+      ec2_group:
+        name: jenkins_elb_sg
+        description: Jenkins ELB Security Group
+        region: eu-west-2
+        rules:
+          - proto: tcp
+            ports:
+            - 443
+            cidr_ip: "{{ vpn_admin_ips }}"
+            rule_desc: allow admins on the VPN access
+        tags:
+          Name: Jenkins ELB
+      register: jenkins_elb_sg
+
+    - name: Jenkins Master Security Group
+      ec2_group:
+        name: jenkins_master
+        description: Jenkins Master Security Group
+        region: eu-west-2
+        rules:
+          - proto: tcp
+            ports:
+            - 22
+            cidr_ip: "{{ vpn_admin_ips }}"
+            rule_desc: allow admins on the VPN access
+          - proto: tcp
+            ports:
+            - 80
+            group_id: "{{ jenkins_elb_sg.group_id }}"
+            rule_desc: allow http
+        tags:
+          Name: Jenkins Master Instance
+      register: jenkins_master_sg
+
+    - name: Create Jenkins master instance
+      ec2:
+        key_name: govwifi-jenkins
+        instance_type: t2.medium
+        exact_count: 1
+        zone: eu-west-2a
+        image: "{{ ec2_ami }}"
+        group_id: "{{ jenkins_master_sg.group_id }}"
+        wait: true
+        count_tag:
+          Name: Jenkins Master
+        instance_tags:
+          Name: Jenkins Master
+        volumes:
+          - device_name: /dev/sda1
+            volume_type: gp2
+            volume_size: 30
+      register: govwifi_jenkins_master
+
+    - name: Create Jenkins ELB
+      ec2_elb_lb:
+        name: govwifi-jenkins-master-lb
+        state: present
+        idle_timeout: 300
+        zones:
+          - eu-west-2a
+        listeners:
+          - protocol: https
+            load_balancer_port: 443
+            instance_protocol: http
+            instance_port: 80
+            ssl_certificate_id: "{{ elb_cert }}"
+        security_group_names:
+          - jenkins_elb_sg
+        tags:
+          Name: Jenkins ELB
+      register: govwifi_jenkins_master_elb
+
+    - name: Query Jenkins DNS record
+      route53:
+        command: get
+        zone: wifi.service.gov.uk
+        record: jenkins.wifi.service.gov.uk
+        type: A
+      register: master_dns
+
+    - name: Set Jenkins DNS record to ELB
+      route53:
+        command: create
+        zone: wifi.service.gov.uk
+        record: jenkins.wifi.service.gov.uk
+        type: A
+        alias: true
+        alias_hosted_zone_id: "{{  govwifi_jenkins_master_elb.elb.hosted_zone_id }}"
+        value: "{{ govwifi_jenkins_master_elb.elb.dns_name }}"
+        overwrite: true
+      when: master_dns.set == {} or master_dns.set.value != "{{ govwifi_jenkins_master_elb.elb.dns_name ~ '.' }}"
+
+    - name: Add Jenkins master to ELB
+      ec2_elb:
+        instance_id: "{{ item.id }}"
+        ec2_elbs: govwifi-jenkins-master-lb
+        state: present
+        wait: false
+      when: item.id not in govwifi_jenkins_master_elb.elb.instances
+      with_items: "{{ govwifi_jenkins_master.tagged_instances }}"

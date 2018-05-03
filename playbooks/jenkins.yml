@@ -1,0 +1,51 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+  remote_user: ubuntu
+
+  tasks:
+    - apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        id: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+
+    - apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+        update_cache: true
+        state: present
+
+    - name: Install packages
+      apt:
+        name: "{{ item }}"
+        update_cache: true
+      with_items:
+        - docker-ce
+
+- hosts: jenkins_master
+  become: yes
+  become_method: sudo
+  remote_user: ubuntu
+
+  tasks:
+    - name: Install packages
+      apt:
+        name: "{{ item }}"
+        update_cache: true
+      with_items:
+        - python3-pip
+
+    - pip:
+        name: docker
+
+    - docker_container:
+        name: jenkins_master
+        image: jenkinsci/blueocean
+        user: root
+        auto_remove: true
+        state: started
+        ports:
+          - "80:8080"
+          - "50000:50000"
+        volumes:
+          - "/home/ubuntu/jenkins-data:/var/jenkins_home"
+          - "/var/run/docker.sock:/var/run/docker.sock"

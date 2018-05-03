@@ -1,0 +1,4 @@
+---
+jenkins_master:
+  hosts:
+    ec2-35-178-113-239.eu-west-2.compute.amazonaws.com
