@@ -11,7 +11,7 @@ configure-infra:
 	AWS_PROFILE=$(aws_profile) \
 	AWS_REGION=$(aws_region) \
 	ANSIBLE_HOST_KEY_CHECKING=false \
-	ANSIBLE_PRIVATE_KEY_FILE=keys/govwifi-jenkins \
+	ANSIBLE_PRIVATE_KEY_FILE=private/keys/govwifi-jenkins \
 	ansible-playbook -i inventory \
 		playbooks/jenkins.yml \
 		--limit jenkins_master
