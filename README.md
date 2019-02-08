@@ -36,3 +36,9 @@ Now run:
 ```
 make configure-infra
 ```
+
+## Licence
+
+This codebase is released under [the MIT License][mit].
+
+[mit]: LICENSE
